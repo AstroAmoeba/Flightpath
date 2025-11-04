@@ -3,9 +3,9 @@ import React, { useCallback, useRef } from 'react';
 import ReactFlow, {
   ReactFlowProvider,
   Background as ReactFlowBackground,
+  BackgroundVariant,
   Controls,
   MiniMap,
-  BackgroundVariant,
   Connection,
   Node,
 } from 'reactflow';
@@ -20,6 +20,7 @@ import { useTheme } from '@mui/material/styles';
 import { Toolbar } from '../Toolbar/Toolbar';
 import ArrowMarker from '../ArrowMarker/ArrowMarker';
 import NodeContentModal from './NodeContentModal';
+import { createGrid, addNodeToGrid, removeNodeFromGrid, isCellOccupied } from '../../utils/grid';
 
 const nodeTypes = {
   custom: CustomNode,
@@ -39,6 +40,7 @@ export const DiagramCanvas: React.FC = () => {
   const theme = useTheme();
   const diagramRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = React.useState(true); // Estado para el indicador de carga
+  const [grid, setGrid] = React.useState(() => createGrid(60, 60)); // Retícula de 10x10
   const {
     nodes,
     edges,
@@ -67,7 +69,7 @@ export const DiagramCanvas: React.FC = () => {
     isEdgeEditModalOpen,
     closeEditModal,
     closeEdgeEditModal,
-    importFromJson,    
+    importFromJson,
     toggleEdgeDirection,
     setNodes,
     setEdges,
@@ -163,93 +165,136 @@ export const DiagramCanvas: React.FC = () => {
     [handleNodeClick]
   );
 
+  const handleAddNode = (node: Node, row: number, col: number) => {
+    if (addNodeToGrid(grid, node, row, col)) {
+      console.log(`Nodo agregado en la celda (${row}, ${col})`);
+    } else {
+      console.error(`La celda (${row}, ${col}) ya está ocupada.`);
+    }
+  };
+
+  const handleRemoveNode = (row: number, col: number) => {
+    if (removeNodeFromGrid(grid, row, col)) {
+      console.log(`Nodo eliminado de la celda (${row}, ${col})`);
+    } else {
+      console.error(`La celda (${row}, ${col}) ya estaba vacía.`);
+    }
+  };
+
   return (
-      <div ref={diagramRef} style={{ width: '100%', height: '100vh', position: 'relative' }}>
-        <Toolbar
-          reactFlowInstance={reactFlowInstance}
-          diagramRef={diagramRef}
-          onImportJson={importFromJson}
-        />
-        <ReactFlowProvider>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodeClick={onNodeClick}
-            /* lineas comentadas eran para debuggear
-            onNodeClick={(event, node) => {
-            console.log('Nodo picado:', node.data);
-            console.log("ID del nodo", node.id);
-            }}*/
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onEdgeDoubleClick={onEdgeDoubleClick}
-            onPaneContextMenu={onPaneContextMenu}
-            onNodeContextMenu={onNodeContextMenu}
-            onEdgeContextMenu={onEdgeContextMenu}
-            onPaneClick={onPaneClick}
-            onInit={setReactFlowInstance}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            fitView
-            isValidConnection={isValidConnection}
-            style={{
-              backgroundColor: '#636362', // puse un color menos feo 
-            }}
-          >
-            <ReactFlowBackground
-              variant={BackgroundVariant.Dots}
-              gap={20}
-              size={1}
-              color={theme.palette.divider}
-            />
-            <ArrowMarker id="arrowhead" />
-            <Controls />
-            <MiniMap
+    <div ref={diagramRef} style={{ width: '100%', height: '100vh', position: 'relative' }}>
+      <Toolbar
+        reactFlowInstance={reactFlowInstance}
+        diagramRef={diagramRef}
+        onImportJson={importFromJson}
+      />
+
+      {/* Retícula: Colócala antes del componente ReactFlow */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          display: 'grid',
+          gridTemplateColumns: `repeat(${grid[0].length}, 1fr)`,
+          gap: '2px',
+          zIndex: 1, // Asegúrate de que esté detrás de ReactFlow pero encima del fondo
+          pointerEvents: 'none', // Evita que bloquee eventos
+        }}
+      >
+        {grid.map((row, rowIndex) =>
+          row.map((cell, colIndex) => (
+            <div
+              key={`${rowIndex}-${colIndex}`}
               style={{
-                backgroundColor: theme.palette.background.paper,
+                width: '50px',
+                height: '50px',
+                border: '1px solid rgba(0, 0, 0, 0.2)', // Borde más sutil
+                backgroundColor: cell ? 'rgba(76, 175, 80, 0.5)' : 'transparent', // Fondo transparente
               }}
             />
-          </ReactFlow>
-        </ReactFlowProvider>
-
-        <ContextMenu
-          anchorPosition={contextMenu}
-          onClose={closeContextMenu}
-          onCreateNode={createNodeFromContextMenu}
-          onDeleteNode={deleteNodeFromContextMenu}
-          onEditNode={handleEditNodeFromContextMenu} // <-- NUEVO
-          onDeleteEdge={deleteEdgeFromContextMenu}
-          onToggleEdgeDirection={toggleEdgeDirection}
-          selectedNodeForDelete={selectedNodeForDelete}
-          selectedEdgeForDelete={selectedEdgeForDelete}
-          onToggleEdgeType={toggleEdgeType}
-        />
-
-        <NodeEditModal
-          open={isEditModalOpen}
-          onClose={closeEditModal}
-          node={selectedNodeForEdit}
-          onSave={updateNodeData}
-        />
-
-        <EdgeEditModal
-          open={isEdgeEditModalOpen}
-          onClose={closeEdgeEditModal}
-          edge={selectedEdgeForEdit}
-          nodes={nodes}
-          onSave={updateEdgeData}
-        />
-
-        
-        <NodeContentModal
-          open={modalState.open}
-          onClose={closeModal}
-          url={modalState.url}
-          title={modalState.title}
-        />
+          ))
+        )}
       </div>
-    
+
+      {/* ReactFlow: Colócalo encima de la retícula */}
+      <ReactFlowProvider>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodeClick={onNodeClick}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onEdgeDoubleClick={onEdgeDoubleClick}
+          onPaneContextMenu={onPaneContextMenu}
+          onNodeContextMenu={onNodeContextMenu}
+          onEdgeContextMenu={onEdgeContextMenu}
+          onPaneClick={onPaneClick}
+          onInit={setReactFlowInstance}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          fitView
+          isValidConnection={isValidConnection}
+          style={{
+            backgroundColor: 'rgba(0, 0, 255, 0.1)', // Fondo temporal para depuración
+            zIndex: 2, // Asegúrate de que esté por encima de la retícula
+          }}
+        >
+          <ReactFlowBackground
+            variant={BackgroundVariant.Dots}
+            gap={20}
+            size={1}
+            color={theme.palette.divider}
+          />
+          <ArrowMarker id="arrowhead" />
+          <Controls />
+          <MiniMap
+            style={{
+              backgroundColor: theme.palette.background.paper,
+            }}
+          />
+        </ReactFlow>
+      </ReactFlowProvider>
+
+      {/* Otros componentes */}
+      <ContextMenu
+        anchorPosition={contextMenu}
+        onClose={closeContextMenu}
+        onCreateNode={createNodeFromContextMenu}
+        onDeleteNode={deleteNodeFromContextMenu}
+        onEditNode={handleEditNodeFromContextMenu}
+        onDeleteEdge={deleteEdgeFromContextMenu}
+        onToggleEdgeDirection={toggleEdgeDirection}
+        selectedNodeForDelete={selectedNodeForDelete}
+        selectedEdgeForDelete={selectedEdgeForDelete}
+        onToggleEdgeType={toggleEdgeType}
+      />
+
+      <NodeEditModal
+        open={isEditModalOpen}
+        onClose={closeEditModal}
+        node={selectedNodeForEdit}
+        onSave={updateNodeData}
+      />
+
+      <EdgeEditModal
+        open={isEdgeEditModalOpen}
+        onClose={closeEdgeEditModal}
+        edge={selectedEdgeForEdit}
+        nodes={nodes}
+        onSave={updateEdgeData}
+      />
+
+      <NodeContentModal
+        open={modalState.open}
+        onClose={closeModal}
+        url={modalState.url}
+        title={modalState.title}
+      />
+    </div>
   );
 };
 
